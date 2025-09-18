@@ -4,10 +4,16 @@
  * header. This ensures that the definitions will exist in one compilation unit
  * only, reducing code bloat and the need to declare functions static.
  *
- * You can prevent inclusion of stdlib.h by defining JSISH_NO_STDLIB before
- * including this header. In that case, you will need to also define
- * JSISH_STRTOD so it is an alias for an implementation of the stdlib strtod()
- * function.
+ * You can prevent inclusion of standard library headers by defining
+ * JSISH_NO_STDLIB before including this header. In that case, you will need to
+ * also define JSISH_STRTOD so it is an alias for an implementation of the
+ * stdlib strtod() function, JSISH_SPRINTF as an alias for the sprintf()
+ * function, JSISH_STRLEN as an alias for strlen(), and JSISH_FLOAT_DIGITS(V) so
+ * that when it's invoked as a function it returns the number of digits required
+ * to serialize the double precision floating point number V.
+ *
+ * You can also define either of the above without defining JSISH_NO_STDLIB, in
+ * which case they will override the default versions.
  *
  * =====
  *
@@ -44,8 +50,16 @@ extern "C" {
 
 #ifndef JSISH_NO_STDLIB
 #include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 #ifndef JSISH_STRTOD
 #define JSISH_STRTOD strtod
+#endif
+#ifndef JSISH_SPRINTF
+#define JSISH_SPRINTF sprintf
+#endif
+#ifndef JSISH_STRLEN
+#define JSISH_STRLEN strlen
 #endif
 #endif
 
@@ -114,6 +128,11 @@ void jsish_init_decoder(
 
 jsish_result_t jsish_decode(jsish_decoder_t* decoder, char* source);
 
+unsigned int jsish_encode(
+		const jsish_value_t* value,
+		char* buffer,
+		unsigned int buffer_size);
+
 #define JSISH_IS_NUMBER(OBJECT) ((OBJECT)->type == JSISH_NUMBER)
 #define JSISH_IS_BOOL(OBJECT) ((OBJECT)->type == JSISH_BOOL)
 #define JSISH_IS_STRING(OBJECT) ((OBJECT)->type == JSISH_STRING)
@@ -135,6 +154,18 @@ jsish_result_t jsish_decode(jsish_decoder_t* decoder, char* source);
 /* Function definitions below this line. */
 
 #ifdef JSISH_MAIN
+
+#ifndef JSISH_FLOAT_DIGITS
+#if __STDC_VERSION__ >= 199901L
+#define JSISH_FLOAT_DIGITS(V) snprintf(NULL, 0, "%f", (V))
+#else
+unsigned int _jsish_float_digits(double v) {
+	static char buffer[1024];
+	return JSISH_SPRINTF(buffer, "%f", v);
+}
+#define JSISH_FLOAT_DIGITS(V) _jsish_float_digits((V))
+#endif
+#endif
 
 void jsish_init_decoder(
 		jsish_decoder_t* decoder,
@@ -481,6 +512,210 @@ jsish_result_t jsish_decode(jsish_decoder_t* decoder, char* source) {
 	decoder->source = source;
 	_jsish_skip_whitespace(decoder);
 	return _jsish_decode_value(decoder, &decoder->root);
+}
+
+unsigned int _jsish_encode_null(char* buffer, unsigned int buffer_size) {
+	if (buffer_size < 5) {
+		return 0;
+	}
+	buffer[0] = 'n';
+	buffer[1] = 'u';
+	buffer[2] = 'l';
+	buffer[3] = 'l';
+	return 4;
+}
+
+unsigned int _jsish_encode_number(
+		const jsish_value_t* value,
+		char* buffer,
+		unsigned int buffer_size) {
+	unsigned int length;
+	length = JSISH_FLOAT_DIGITS(JSISH_GET_NUMBER(value));
+	if (length >= buffer_size) {
+		return 0;
+	}
+	JSISH_SPRINTF(buffer, "%f", JSISH_GET_NUMBER(value));
+
+	return length;
+}
+
+unsigned int _jsish_encode_bool(
+		const jsish_value_t* value,
+		char* buffer,
+		unsigned int buffer_size) {
+	if (JSISH_GET_BOOL(value)) {
+		if (buffer_size < 5) {
+			return 0;
+		}
+		buffer[0] = 't';
+		buffer[1] = 'r';
+		buffer[2] = 'u';
+		buffer[3] = 'e';
+		return 4;
+	}
+	if (buffer_size < 6) {
+		return 0;
+	}
+	buffer[0] = 'f';
+	buffer[1] = 'a';
+	buffer[2] = 'l';
+	buffer[3] = 's';
+	buffer[4] = 'e';
+	return 5;
+}
+
+unsigned int _jsish_encode_string(
+		const jsish_value_t* value,
+		char* buffer,
+		unsigned int buffer_size) {
+	unsigned int length;
+	length = JSISH_STRLEN(JSISH_GET_STRING(value));
+	if (buffer_size <= length + 3) {
+		return 0;
+	}
+	JSISH_SPRINTF(buffer, "\"%s\"", JSISH_GET_STRING(value));
+	return length + 2;
+}
+
+unsigned int _jsish_encode_value(
+		const jsish_value_t* value,
+		char* buffer,
+		unsigned int buffer_size);
+
+unsigned int _jsish_encode_array(
+		const jsish_value_t* value,
+		char* buffer,
+		unsigned int buffer_size) {
+	unsigned int i;
+	unsigned int length;
+	unsigned int total;
+	const char* sep;
+	if (buffer_size < 3) {
+		return 0;
+	}
+	*buffer++ = '[';
+	buffer_size--;
+	sep = "";
+	total = 1;
+	for (i = 0; i < JSISH_ARRAY_SIZE(value); ++i) {
+		length = (*sep == '\0') ? 0 : 1;
+		if (length + 2 >= buffer_size) {
+			return 0;
+		}
+		JSISH_SPRINTF(buffer, "%s", sep);
+		buffer = &buffer[length];
+		buffer_size -= length;
+		total += length;
+
+		length = _jsish_encode_value(
+				JSISH_ARRAY_INDEX(value, i),
+				buffer,
+				buffer_size);
+		if (!length) {
+			continue;
+		}
+		buffer = &buffer[length];
+		buffer_size -= length;
+		total += length;
+
+		sep = ",";
+	}
+	*buffer++ = ']';
+
+	return total + 1;
+}
+
+unsigned int _jsish_encode_object(
+		const jsish_value_t* value,
+		char* buffer,
+		unsigned int buffer_size) {
+	unsigned int length;
+	unsigned int total;
+	const char* sep;
+	if (buffer_size < 3) {
+		return 0;
+	}
+	*buffer++ = '{';
+	buffer_size--;
+	sep = "";
+	total = 1;
+	while (value != NULL) {
+		length = (*sep == '\0') ? 0 : 1;
+		if (length + 2 >= buffer_size) {
+			return 0;
+		}
+		JSISH_SPRINTF(buffer, "%s", sep);
+		buffer = &buffer[length];
+		buffer_size -= length;
+		total += length;
+
+		length = _jsish_encode_string(
+				value->data.vobj.key,
+				buffer,
+				buffer_size);
+		buffer = &buffer[length];
+		buffer_size -= length;
+		if (length + 3 >= buffer_size) {
+			return 0;
+		}
+		*buffer++ = ':';
+		buffer_size--;
+		total += 2 + length;
+
+		length = _jsish_encode_value(
+				JSISH_KV_VALUE(value),
+				buffer,
+				buffer_size);
+		if (!length) {
+			continue;
+		}
+		buffer = &buffer[length];
+		buffer_size -= length;
+		total += length;
+
+		sep = ",";
+		value = JSISH_KV_NEXT(value);
+	}
+	*buffer++ = '}';
+
+	return total + 1;
+}
+
+unsigned int _jsish_encode_value(
+		const jsish_value_t* value,
+		char* buffer,
+		unsigned int buffer_size) {
+	switch (value->type) {
+		case JSISH_NULL:
+			return _jsish_encode_null(buffer, buffer_size);
+		case JSISH_NUMBER:
+			return _jsish_encode_number(value, buffer, buffer_size);
+		case JSISH_BOOL:
+			return _jsish_encode_bool(value, buffer, buffer_size);
+		case JSISH_STRING:
+			return _jsish_encode_string(value, buffer, buffer_size);
+		case JSISH_ARRAY:
+			return _jsish_encode_array(value, buffer, buffer_size);
+		case JSISH_KEYVAL:
+			return _jsish_encode_object(value, buffer, buffer_size);
+		default:
+			return 0;
+	}
+}
+
+unsigned int
+jsish_encode(
+		const jsish_value_t* value,
+		char* buffer,
+		unsigned int buffer_size) {
+	unsigned int length;
+	length = _jsish_encode_value(value, buffer, buffer_size);
+	if (length >= buffer_size) {
+		return 0;
+	}
+	buffer[length] = '\0';
+
+	return length;
 }
 
 #endif
