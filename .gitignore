@@ -1,3 +1,6 @@
+# Tests build folder.
+test/build
+
 # Vim litter.
 *~
 .*.sw?

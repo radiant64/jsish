@@ -4,6 +4,11 @@
  * header. This ensures that the definitions will exist in one compilation unit
  * only, reducing code bloat and the need to declare functions static.
  *
+ * You can prevent inclusion of stdlib.h by defining JSISH_NO_STDLIB before
+ * including this header. In that case, you will need to also define
+ * JSISH_STRTOD so it is an alias for an implementation of the stdlib strtod()
+ * function.
+ *
  * =====
  *
  * zlib License
@@ -37,6 +42,13 @@
 extern "C" {
 #endif
 
+#ifndef JSISH_NO_STDLIB
+#include <stdlib.h>
+#ifndef JSISH_STRTOD
+#define JSISH_STRTOD strtod
+#endif
+#endif
+
 #ifndef NULL
 #define NULL 0
 #endif
@@ -53,7 +65,6 @@ typedef enum {
 	JSISH_BOOL,
 	JSISH_STRING,
 	JSISH_ARRAY,
-	JSISH_STRING,
 	JSISH_KEYVAL
 } jsish_type_t;
 
@@ -77,6 +88,7 @@ typedef struct jsish_value {
 		char vbool;
 		const char* vstr; 
 		jsish_array_t varr;
+		/* An object is just a list of key-value pairs. */
 		jsish_keyval_t vobj;
 	} data;
 } jsish_value_t;
@@ -85,8 +97,9 @@ typedef struct {
 	jsish_value_t* values;
 	unsigned int values_cursor;
 	unsigned int values_size;
+	unsigned int stack_cursor;
 
-	jsish_keyval_t root;
+	jsish_value_t root;
 
 	char* source;
 	unsigned int cursor;
@@ -112,6 +125,7 @@ void jsish_init_decoder(
 	decoder->values = values;
 	decoder->values_size = values_size;
 	decoder->values_cursor = 0;
+	decoder->stack_cursor = values_size - 1;
 	decoder->source = NULL;
 	decoder->cursor = 0;
 }
@@ -128,7 +142,7 @@ void _jsish_skip_whitespace(jsish_decoder_t* decoder) {
 
 jsish_value_t* _jsish_alloc_value(jsish_decoder_t* decoder) {
 	jsish_value_t* value;
-	if (decoder->values_cursor + 1 => decoder->values_size) {
+	if (decoder->values_cursor + 1 >= decoder->stack_cursor) {
 		return NULL;
 	}
 
@@ -141,26 +155,243 @@ jsish_value_t* _jsish_alloc_value(jsish_decoder_t* decoder) {
 	return value;
 }
 
+jsish_value_t* _jsish_alloc_fifo(jsish_decoder_t* decoder) {
+	jsish_value_t* stack_val;
+	if (decoder->stack_cursor <= decoder->values_cursor + 1) {
+		return NULL;
+	}
+
+	stack_val = &decoder->values[decoder->stack_cursor--];
+	stack_val->type = JSISH_NULL;
+	stack_val->data.vobj.key = NULL;
+	stack_val->data.vobj.value = NULL;
+	stack_val->data.vobj.next = NULL;
+
+	return stack_val;
+}
+
+jsish_value_t* _jsish_fifo_copy(jsish_decoder_t* decoder, unsigned int index) {
+	jsish_value_t* value;
+	jsish_value_t* stack_val;
+	if (decoder->values_size - decoder->stack_cursor - 1 < index) {
+		return NULL;
+	}
+
+	value = _jsish_alloc_value(decoder);
+	if (!value) {
+		return NULL;
+	}
+	stack_val = &decoder->values[decoder->values_size - index - 1];
+	value->type = stack_val->type;
+	value->data = stack_val->data;
+
+	return value;
+}
+
+int _jsish_is_hex_digit(char c) {
+	return (c >= '0' && c <= '9')
+		|| (c >= 'a' && c <= 'f')
+		|| (c >= 'A' && c <= 'F');
+}
+
 jsish_result_t
-_jsish_decode_object(jsish_decoder_t* decoder, jsish_keyval_t* keyval) {
+_jsish_decode_string(jsish_decoder_t* decoder, jsish_value_t* value) {
+	char c;
+	int i;
+	char* decoded; 
+	if (decoder->source[decoder->cursor] != '"') {
+		return JSISH_ERR_MALFORMED;
+	}
+
+	decoded = &decoder->source[decoder->cursor + 1];
+
+	while ((c = decoder->source[++decoder->cursor]) != '"') {
+		switch (c) {
+			case '\\':
+				/* Verify the backslash is followed by a valid escape code. */
+				c = decoder->source[++decoder->cursor];
+				switch (c) {
+					case '\\': case '/': case '"': case 'f': case 't': case 'n':
+					case 'r':
+						break;
+					case 'u':
+						/* \u needs to be followed by four hex digits. */
+						for (i = 0; i < 4; ++i) {
+							c = decoder->source[++decoder->cursor];
+							if (!_jsish_is_hex_digit(c)) {
+								return JSISH_ERR_MALFORMED;
+							}
+						}
+						break;
+					default:
+						return JSISH_ERR_MALFORMED;
+				}
+				break;
+			case '\0': case '\n': case '\r':
+				return JSISH_ERR_MALFORMED;
+			default:
+				break;
+		}
+	}
+
+	/* Replace the end quote with a zero terminator in the source, so the
+	 * decoded string can be referenced in situ. */
+	decoder->source[decoder->cursor++] = '\0';
+	value->type = JSISH_STRING;
+	value->data.vstr = decoded;
+
+	_jsish_skip_whitespace(decoder);
+
+	return JSISH_OK;
+}
+
+jsish_result_t
+_jsish_decode_number(jsish_decoder_t* decoder, jsish_value_t* value) {
+	double num;
+	char* end;
+	num = JSISH_STRTOD(&decoder->source[decoder->cursor], &end);
+
+	if (end == &decoder->source[decoder->cursor]) {
+		return JSISH_ERR_MALFORMED;
+	}
+
+	value->type = JSISH_NUMBER;
+	value->data.vnum = num;
+	decoder->cursor += (unsigned int) (end - &decoder->source[decoder->cursor]);
+
+	_jsish_skip_whitespace(decoder);
+
+	return JSISH_OK;
+}
+
+jsish_result_t
+_jsish_decode_bool(jsish_decoder_t* decoder, jsish_value_t* value) {
+	const char* s;
+	s = &decoder->source[decoder->cursor];
+	if (s[0] == 'f' 
+			&& s[1] == 'a'
+			&& s[2] == 'l'
+			&& s[3] == 's'
+			&& s[4] == 'e') {
+		value->data.vbool = 0;
+		decoder->cursor += 5;
+	} else if (s[0] == 't' && s[1] == 'r' && s[2] == 'u' && s[3] == 'e') {
+		value->data.vbool = 1;
+		decoder->cursor += 4;
+	} else {
+		return JSISH_ERR_MALFORMED;
+	}
+	value->type = JSISH_BOOL;
+
+	_jsish_skip_whitespace(decoder);
+
+	return JSISH_OK;
+}
+
+jsish_result_t
+_jsish_decode_null(jsish_decoder_t* decoder, jsish_value_t* value) {
+	const char* s;
+	s = &decoder->source[decoder->cursor];
+	/* Skip checking the first char since that's already been done in
+	 * _jsish_decode_value(). */
+	if (s[1] != 'u' || s[2] != 'l' || s[3] != 'l') {
+		return JSISH_ERR_MALFORMED;
+	}
+	value->type = JSISH_NULL;
+	decoder->cursor += 4;
+
+	_jsish_skip_whitespace(decoder);
+
+	return JSISH_OK;
+}
+
+jsish_result_t
+_jsish_decode_value(jsish_decoder_t* decoder, jsish_value_t* value);
+
+jsish_result_t
+_jsish_decode_array(jsish_decoder_t* decoder, jsish_value_t* value) {
+	char c;
+	int first;
+	unsigned int i;
+	jsish_value_t* element;
+	jsish_result_t result;
+	first = 1;
+
+	/* Skip over initial brace. */
+	decoder->cursor++;
+	_jsish_skip_whitespace(decoder);
+
+	/* Decode all the array elements and push the pointers onto the decoding
+	 * stack. */
+	while ((c = decoder->source[decoder->cursor]) != ']') {
+		if (!first && c != ',') {
+			return JSISH_ERR_MALFORMED;
+		} else if (first) {
+			first = 0;
+		} else { /* c == ',' -- Skip over comma. */
+			decoder->cursor++;
+		}
+
+		element = _jsish_alloc_fifo(decoder);
+		if (!element) {
+			return JSISH_ERR_MEM_OVERFLOW;
+		}
+		
+		_jsish_skip_whitespace(decoder);
+		result = _jsish_decode_value(decoder, element);
+		if (result != JSISH_OK) {
+			return result;
+		}
+
+		_jsish_skip_whitespace(decoder);
+
+		value->data.varr.size++;
+	}
+
+	/* Read array elements in FIFO order from the stack, copy them so they are
+	 * contiguous, and reset stack cursor. */
+	element = NULL;
+	for (i = 0; i < value->data.varr.size; ++i) {
+		element = _jsish_fifo_copy(decoder, i);
+		if (!element) {
+			return JSISH_ERR_MEM_OVERFLOW;
+		}
+		if (!value->data.varr.data) {
+			/* First element in array. */
+			value->data.varr.data = element;
+		}
+	}
+	decoder->stack_cursor = decoder->values_size - 1;
+	value->type = JSISH_ARRAY;
+
+	/* Account for the closing bracket. */
+	decoder->cursor++;
+	_jsish_skip_whitespace(decoder);
+
+	return JSISH_OK;
+}
+
+jsish_result_t
+_jsish_decode_object(jsish_decoder_t* decoder, jsish_value_t* value) {
 	int first;
 	char c;
 	jsish_result_t result;
 	if (decoder->source[decoder->cursor] != '{') {
 		return JSISH_ERR_MALFORMED;
 	}
+	value->type = JSISH_KEYVAL;
 	/* Decode fields in object. */
 	decoder->cursor++;
 	_jsish_skip_whitespace(decoder);
 	first = 1;
 	while ((c = decoder->source[decoder->cursor]) != '}') {
 		if (!first && c == ',') {
-			keyval->next = _jsish_alloc_value(decoder);
-			if (!keyval->next) {
+			value->data.vobj.next = _jsish_alloc_value(decoder);
+			if (!value->data.vobj.next) {
 				return JSISH_ERR_MEM_OVERFLOW;
 			}
-			keyval = &keyval->next->data.vobj;
-			keyval->type = JSISH_KEYVAL;
+			value = value->data.vobj.next;
+			value->type = JSISH_KEYVAL;
 			decoder->cursor++;
 		} else if (!first) {
 			return JSISH_ERR_MALFORMED;
@@ -169,16 +400,17 @@ _jsish_decode_object(jsish_decoder_t* decoder, jsish_keyval_t* keyval) {
 		}
 
 		/* Decode key. */
-		keyval->key = _jsish_alloc_value(decoder);
-		if (!keyval->key) {
+		value->data.vobj.key = _jsish_alloc_value(decoder);
+		if (!value->data.vobj.key) {
 			return JSISH_ERR_MEM_OVERFLOW;
 		}
-		result = _jsish_decode_string(decoder, &keyval->key);
+		_jsish_skip_whitespace(decoder);
+		result = _jsish_decode_string(decoder, value->data.vobj.key);
 		if (result != JSISH_OK) {
 			return result;
 		}
 
-		/* Verify key is followed by colon, advance cursor and decode value. */
+		/* Verify key is followed by colon, advance cursor, and decode value. */
 		_jsish_skip_whitespace(decoder);
 		if (decoder->source[decoder->cursor] == ':') {
 			decoder->cursor++;
@@ -187,15 +419,20 @@ _jsish_decode_object(jsish_decoder_t* decoder, jsish_keyval_t* keyval) {
 		}
 		_jsish_skip_whitespace(decoder);
 
-		keyval->value = _jsish_alloc_value(decoder);
-		if (!keyval->value) {
+		value->data.vobj.value = _jsish_alloc_value(decoder);
+		if (!value->data.vobj.value) {
 			return JSISH_ERR_MEM_OVERFLOW;
 		}
-		result = _jsish_decode_value(decoder, &keyval->value);
+		result = _jsish_decode_value(decoder, value->data.vobj.value);
 		if (result != JSISH_OK) {
 			return result;
 		}
 	}
+
+	/* Account for the closing brace. */
+	decoder->cursor++;
+
+	_jsish_skip_whitespace(decoder);
 
 	return JSISH_OK;
 }
@@ -222,10 +459,10 @@ _jsish_decode_value(jsish_decoder_t* decoder, jsish_value_t* value) {
 	};
 }
 
-jsish_result_t jsish_decode(jsish_decoder_t* decoder, const char* source) {
+jsish_result_t jsish_decode(jsish_decoder_t* decoder, char* source) {
 	decoder->source = source;
 	_jsish_skip_whitespace(decoder);
-	return _jsish_decode_value(jsish_decoder_t* decoder, &decoder->root);
+	return _jsish_decode_value(decoder, &decoder->root);
 }
 
 #endif
