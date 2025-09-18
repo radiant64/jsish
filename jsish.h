@@ -114,6 +114,24 @@ void jsish_init_decoder(
 
 jsish_result_t jsish_decode(jsish_decoder_t* decoder, char* source);
 
+#define JSISH_IS_NUMBER(OBJECT) ((OBJECT)->type == JSISH_NUMBER)
+#define JSISH_IS_BOOL(OBJECT) ((OBJECT)->type == JSISH_BOOL)
+#define JSISH_IS_STRING(OBJECT) ((OBJECT)->type == JSISH_STRING)
+#define JSISH_IS_NULL(OBJECT) ((OBJECT)->type == JSISH_NULL)
+#define JSISH_IS_ARRAY(OBJECT) ((OBJECT)->type == JSISH_ARRAY)
+#define JSISH_IS_OBJECT(OBJECT) ((OBJECT)->type == JSISH_KEYVAL)
+
+#define JSISH_GET_NUMBER(OBJECT) ((OBJECT)->data.vnum)
+#define JSISH_GET_BOOL(OBJECT) ((OBJECT)->data.vbool)
+#define JSISH_GET_STRING(OBJECT) ((OBJECT)->data.vstr)
+
+#define JSISH_ARRAY_INDEX(OBJECT, INDEX) &((OBJECT)->data.varr.data[INDEX])
+#define JSISH_ARRAY_SIZE(OBJECT) ((OBJECT)->data.varr.size)
+
+#define JSISH_KV_KEY(OBJECT) ((OBJECT)->data.vobj.key->data.vstr)
+#define JSISH_KV_VALUE(OBJECT) ((OBJECT)->data.vobj.value)
+#define JSISH_KV_NEXT(OBJECT) ((OBJECT)->data.vobj.next)
+
 /* Function definitions below this line. */
 
 #ifdef JSISH_MAIN
