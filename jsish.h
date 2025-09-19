@@ -722,8 +722,7 @@ unsigned int _jsish_encode_value(
 	}
 }
 
-unsigned int
-jsish_encode(
+unsigned int jsish_encode(
 		const jsish_value_t* value,
 		char* buffer,
 		unsigned int buffer_size) {
