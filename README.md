@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
         jsish_value_t* value = JSISH_KV_VALUE(node);
 
         if (JSISH_IS_ARRAY(value)) {
-            jsish_value_t array_element = JSISH_ARRAY_INDEX(value, 0);
+            jsish_value_t* array_element = JSISH_ARRAY_INDEX(value, 0);
             // ...
         }
     } while ((node = JSISH_KV_NEXT(node)) != NULL);
