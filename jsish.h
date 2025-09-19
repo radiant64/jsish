@@ -515,7 +515,7 @@ jsish_result_t jsish_decode(jsish_decoder_t* decoder, char* source) {
 }
 
 unsigned int _jsish_encode_null(char* buffer, unsigned int buffer_size) {
-	if (buffer_size < 5) {
+	if (buffer_size < 4) {
 		return 0;
 	}
 	buffer[0] = 'n';
@@ -544,7 +544,7 @@ unsigned int _jsish_encode_bool(
 		char* buffer,
 		unsigned int buffer_size) {
 	if (JSISH_GET_BOOL(value)) {
-		if (buffer_size < 5) {
+		if (buffer_size < 4) {
 			return 0;
 		}
 		buffer[0] = 't';
@@ -553,7 +553,7 @@ unsigned int _jsish_encode_bool(
 		buffer[3] = 'e';
 		return 4;
 	}
-	if (buffer_size < 6) {
+	if (buffer_size < 5) {
 		return 0;
 	}
 	buffer[0] = 'f';
@@ -570,7 +570,7 @@ unsigned int _jsish_encode_string(
 		unsigned int buffer_size) {
 	unsigned int length;
 	length = JSISH_STRLEN(JSISH_GET_STRING(value));
-	if (buffer_size <= length + 3) {
+	if (buffer_size <= length + 2) { /* String length + quotation marks. */
 		return 0;
 	}
 	JSISH_SPRINTF(buffer, "\"%s\"", JSISH_GET_STRING(value));
@@ -590,16 +590,19 @@ unsigned int _jsish_encode_array(
 	unsigned int length;
 	unsigned int total;
 	const char* sep;
-	if (buffer_size < 3) {
+	if (buffer_size == 0) {
 		return 0;
 	}
+	/* Reduce remaining buffer size and increment buffer pointer as more data is
+	 * encoded. */
 	*buffer++ = '[';
 	buffer_size--;
 	sep = "";
 	total = 1;
 	for (i = 0; i < JSISH_ARRAY_SIZE(value); ++i) {
+		/* Write the field separator. */
 		length = (*sep == '\0') ? 0 : 1;
-		if (length + 2 >= buffer_size) {
+		if (length >= buffer_size) { /* Buffer size check for separator. */
 			return 0;
 		}
 		JSISH_SPRINTF(buffer, "%s", sep);
@@ -607,6 +610,7 @@ unsigned int _jsish_encode_array(
 		buffer_size -= length;
 		total += length;
 
+		/* Encode the value at array index i.  */
 		length = _jsish_encode_value(
 				JSISH_ARRAY_INDEX(value, i),
 				buffer,
@@ -620,7 +624,10 @@ unsigned int _jsish_encode_array(
 
 		sep = ",";
 	}
-	*buffer++ = ']';
+	if (buffer_size == 0) {
+		return 0;
+	}
+	*buffer = ']';
 
 	return total + 1;
 }
@@ -632,16 +639,19 @@ unsigned int _jsish_encode_object(
 	unsigned int length;
 	unsigned int total;
 	const char* sep;
-	if (buffer_size < 3) {
+	if (buffer_size == 0) {
 		return 0;
 	}
+	/* Reduce remaining buffer size and increment buffer pointer as more data is
+	 * encoded. */
 	*buffer++ = '{';
 	buffer_size--;
 	sep = "";
 	total = 1;
 	while (value != NULL) {
+		/* Write the field separator. */
 		length = (*sep == '\0') ? 0 : 1;
-		if (length + 2 >= buffer_size) {
+		if (length >= buffer_size) {
 			return 0;
 		}
 		JSISH_SPRINTF(buffer, "%s", sep);
@@ -649,25 +659,31 @@ unsigned int _jsish_encode_object(
 		buffer_size -= length;
 		total += length;
 
+		/* Encode the property name/key. */
 		length = _jsish_encode_string(
 				value->data.vobj.key,
 				buffer,
 				buffer_size);
+		if (length >= buffer_size) {
+			return 0;
+		}
 		buffer = &buffer[length];
 		buffer_size -= length;
-		if (length + 3 >= buffer_size) {
+		total += length;
+		if (buffer_size == 0) {
 			return 0;
 		}
 		*buffer++ = ':';
 		buffer_size--;
-		total += 2 + length;
+		total++;
 
+		/* Encode the value. */
 		length = _jsish_encode_value(
 				JSISH_KV_VALUE(value),
 				buffer,
 				buffer_size);
-		if (!length) {
-			continue;
+		if (length >= buffer_size) {
+			return 0;
 		}
 		buffer = &buffer[length];
 		buffer_size -= length;
@@ -675,6 +691,9 @@ unsigned int _jsish_encode_object(
 
 		sep = ",";
 		value = JSISH_KV_NEXT(value);
+	}
+	if (buffer_size == 0) {
+		return 0;
 	}
 	*buffer++ = '}';
 
