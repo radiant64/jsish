@@ -157,11 +157,11 @@ unsigned int jsish_encode(
 
 #ifndef JSISH_FLOAT_DIGITS
 #if __STDC_VERSION__ >= 199901L
-#define JSISH_FLOAT_DIGITS(V) snprintf(NULL, 0, "%f", (V))
+#define JSISH_FLOAT_DIGITS(V) snprintf(NULL, 0, "%g", (V))
 #else
 unsigned int _jsish_float_digits(double v) {
 	static char buffer[1024];
-	return JSISH_SPRINTF(buffer, "%f", v);
+	return JSISH_SPRINTF(buffer, "%g", v);
 }
 #define JSISH_FLOAT_DIGITS(V) _jsish_float_digits((V))
 #endif
@@ -695,7 +695,7 @@ unsigned int _jsish_encode_object(
 	if (buffer_size == 0) {
 		return 0;
 	}
-	*buffer++ = '}';
+	*buffer = '}';
 
 	return total + 1;
 }
