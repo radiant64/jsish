@@ -21,7 +21,7 @@ void print_null() {
 }
 
 void print_number(const jsish_value_t* value) {
-	fprintf(stdout, "%f", JSISH_GET_NUMBER(value));
+	fprintf(stdout, "%g", JSISH_GET_NUMBER(value));
 }
 
 void print_bool(const jsish_value_t* value) {

@@ -534,7 +534,7 @@ unsigned int _jsish_encode_number(
 	if (length >= buffer_size) {
 		return 0;
 	}
-	JSISH_SPRINTF(buffer, "%f", JSISH_GET_NUMBER(value));
+	JSISH_SPRINTF(buffer, "%g", JSISH_GET_NUMBER(value));
 
 	return length;
 }
