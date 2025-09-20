@@ -133,23 +133,23 @@ unsigned int jsish_encode(
 		char* buffer,
 		unsigned int buffer_size);
 
-#define JSISH_IS_NUMBER(OBJECT) ((OBJECT)->type == JSISH_NUMBER)
-#define JSISH_IS_BOOL(OBJECT) ((OBJECT)->type == JSISH_BOOL)
-#define JSISH_IS_STRING(OBJECT) ((OBJECT)->type == JSISH_STRING)
-#define JSISH_IS_NULL(OBJECT) ((OBJECT)->type == JSISH_NULL)
-#define JSISH_IS_ARRAY(OBJECT) ((OBJECT)->type == JSISH_ARRAY)
-#define JSISH_IS_OBJECT(OBJECT) ((OBJECT)->type == JSISH_KEYVAL)
+#define JSISH_IS_NUMBER(VALUE) ((VALUE)->type == JSISH_NUMBER)
+#define JSISH_IS_BOOL(VALUE) ((VALUE)->type == JSISH_BOOL)
+#define JSISH_IS_STRING(VALUE) ((VALUE)->type == JSISH_STRING)
+#define JSISH_IS_NULL(VALUE) ((VALUE)->type == JSISH_NULL)
+#define JSISH_IS_ARRAY(VALUE) ((VALUE)->type == JSISH_ARRAY)
+#define JSISH_IS_VALUE(VALUE) ((VALUE)->type == JSISH_KEYVAL)
 
-#define JSISH_GET_NUMBER(OBJECT) ((OBJECT)->data.vnum)
-#define JSISH_GET_BOOL(OBJECT) ((OBJECT)->data.vbool)
-#define JSISH_GET_STRING(OBJECT) ((OBJECT)->data.vstr)
+#define JSISH_GET_NUMBER(VALUE) ((VALUE)->data.vnum)
+#define JSISH_GET_BOOL(VALUE) ((VALUE)->data.vbool)
+#define JSISH_GET_STRING(VALUE) ((VALUE)->data.vstr)
 
-#define JSISH_ARRAY_INDEX(OBJECT, INDEX) &((OBJECT)->data.varr.data[INDEX])
-#define JSISH_ARRAY_SIZE(OBJECT) ((OBJECT)->data.varr.size)
+#define JSISH_ARRAY_INDEX(VALUE, INDEX) &((VALUE)->data.varr.data[INDEX])
+#define JSISH_ARRAY_SIZE(VALUE) ((VALUE)->data.varr.size)
 
-#define JSISH_KV_KEY(OBJECT) ((OBJECT)->data.vobj.key->data.vstr)
-#define JSISH_KV_VALUE(OBJECT) ((OBJECT)->data.vobj.value)
-#define JSISH_KV_NEXT(OBJECT) ((OBJECT)->data.vobj.next)
+#define JSISH_KV_KEY(VALUE) ((VALUE)->data.vobj.key->data.vstr)
+#define JSISH_KV_VALUE(VALUE) ((VALUE)->data.vobj.value)
+#define JSISH_KV_NEXT(VALUE) ((VALUE)->data.vobj.next)
 
 /* Function definitions below this line. */
 
