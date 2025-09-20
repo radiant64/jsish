@@ -370,8 +370,8 @@ _jsish_decode_array(jsish_decoder_t* decoder, jsish_value_t* value) {
 	decoder->cursor++;
 	_jsish_skip_whitespace(decoder);
 
-	/* Decode all the array elements and push the pointers onto the decoding
-	 * stack. */
+	/* Decode all the array elements and push the values onto a FIFO stack
+	 * at the top of the provided values memory. */
 	while ((c = decoder->source[decoder->cursor]) != ']') {
 		if (!first && c != ',') {
 			return JSISH_ERR_MALFORMED;
