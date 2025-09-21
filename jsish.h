@@ -8,9 +8,10 @@
  * JSISH_NO_STDLIB before including this header. In that case, you will need to
  * also define JSISH_STRTOD so it is an alias for an implementation of the
  * stdlib strtod() function, JSISH_SPRINTF as an alias for the sprintf()
- * function, JSISH_STRLEN as an alias for strlen(), and JSISH_FLOAT_DIGITS(V) so
- * that when it's invoked as a function it returns the number of digits required
- * to serialize the double precision floating point number V.
+ * function, JSISH_STRLEN as an alias for strlen(), JSISH_STRCMP for strcmp(),
+ * and JSISH_FLOAT_DIGITS(V) so that when it's invoked as a function it returns
+ * the number of digits required * to serialize the double precision floating
+ * point number V.
  *
  * You can also define either of the above without defining JSISH_NO_STDLIB, in
  * which case they will override the default versions.
@@ -60,6 +61,9 @@ extern "C" {
 #endif
 #ifndef JSISH_STRLEN
 #define JSISH_STRLEN strlen
+#endif
+#ifndef JSISH_STRCMP
+#define JSISH_STRCMP strcmp
 #endif
 #endif
 
@@ -133,6 +137,8 @@ jsish_result_t jsish_encode(
 		char* buffer,
 		unsigned int buffer_size,
 		unsigned int* encoded_bytes);
+
+jsish_value_t* jsish_get_property(const jsish_value_t* value, const char* key);
 
 #define JSISH_IS_NUMBER(VALUE) ((VALUE)->type == JSISH_NUMBER)
 #define JSISH_IS_BOOL(VALUE) ((VALUE)->type == JSISH_BOOL)
@@ -688,6 +694,16 @@ jsish_result_t jsish_encode(
 	_jsish_append(buffer, '\0', buffer_size, encoded_bytes);
 
 	return *encoded_bytes <= buffer_size ? JSISH_OK : JSISH_ERR_MEM_OVERFLOW;
+}
+
+jsish_value_t* jsish_get_property(const jsish_value_t* value, const char* key) {
+	do {
+		if (JSISH_STRCMP(JSISH_KV_KEY(value), key) == 0) {
+			return JSISH_KV_VALUE(value);
+		}
+	} while ((value = JSISH_KV_NEXT(value)) != NULL);
+
+	return NULL;
 }
 
 #endif
