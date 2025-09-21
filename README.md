@@ -59,7 +59,7 @@ int main(int argc, char** argv) {
     
     jsish_value_t* node = &json.root;
     do {
-        jsish_value_t* key = JSISH_KV_KEY(node);
+        const char* key = JSISH_KV_KEY(node);
         jsish_value_t* value = JSISH_KV_VALUE(node);
 
         if (JSISH_IS_ARRAY(value)) {
@@ -74,19 +74,30 @@ int main(int argc, char** argv) {
 
 ## Encoder usage
 
-Warning: The encoder does not currently have any mechanism for reporting
-errors. It will not overflow, but there is no way to detect if the output was
-truncated. This will be addressed in an upcoming version.
-
 ```c
 unsigned int jsish_encode(
 		const jsish_value_t* value,
 		char* buffer,
-		unsigned int buffer_size);
+		unsigned int buffer_size,
+        unsigned int* encoded_bytes);
 ```
 
-Encodes the data stored in `value` into `buffer`. The return value is the number
-of bytes written to the buffer.
+Encodes the data stored in `value` into `buffer`, and optionally stores the
+total number of encoded bytes in the variable pointed to by `encoded_bytes`.
+Encoding will not stop after `buffer_size` bytes have been written, but nothing
+more will be written to `buffer` at that point. This can be used to probe for
+how large the buffer would need to be, like so:
+
+```c
+unsigned_int buffer_size;
+jsish_result_t result = jsish_encode(root, NULL, 0, &buffer_size);
+if (result == JSISH_ERR_MEM_OVERFLOW) {
+    char* buffer = malloc(buffer_size);
+    if (buffer != NULL) {
+        result = jsish_encode(root, buffer, buffer_size, &buffer_size); 
+    }
+}
+```
 
 ## API
 
