@@ -138,7 +138,7 @@ unsigned int jsish_encode(
 #define JSISH_IS_STRING(VALUE) ((VALUE)->type == JSISH_STRING)
 #define JSISH_IS_NULL(VALUE) ((VALUE)->type == JSISH_NULL)
 #define JSISH_IS_ARRAY(VALUE) ((VALUE)->type == JSISH_ARRAY)
-#define JSISH_IS_VALUE(VALUE) ((VALUE)->type == JSISH_KEYVAL)
+#define JSISH_IS_KEYVAL(VALUE) ((VALUE)->type == JSISH_KEYVAL)
 
 #define JSISH_GET_NUMBER(VALUE) ((VALUE)->data.vnum)
 #define JSISH_GET_BOOL(VALUE) ((VALUE)->data.vbool)
