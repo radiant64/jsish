@@ -57,7 +57,7 @@ int main(int argc, char** argv) {
 
     // Iterate over the keys in the decoded object.
     
-    jsish_value_t* node = json.root;
+    jsish_value_t* node = &json.root;
     do {
         jsish_value_t* key = JSISH_KV_KEY(node);
         jsish_value_t* value = JSISH_KV_VALUE(node);
