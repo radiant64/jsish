@@ -42,7 +42,7 @@
 #define __JSISH_H
 
 #define JSISH_VERSION_MAJOR 1
-#define JSISH_VERSION_MINOR 1
+#define JSISH_VERSION_MINOR 2
 #define JSISH_VERSION_PATCH 0
 
 #ifdef __cplusplus
